@@ -50,7 +50,7 @@ for (const storage of ['p2p', 'git']) {
       t.alike([log[0].ok, log[0].puts, log[0].commits], [true, 0, 0])
       const told = (await sendForm(work, { command: ['crud/read', 'notes/hello', '--flags', 'log=verbose', 'nope'] })).value
       t.alike(told.flags, { log: 'verbose', nope: true }, 'flags written with a command: in the form, as written')
-      t.alike(told.log.map(e => [e.level, e.event]), [['warn', 'request.flag'], ['verbose', 'crud.read.select'], ['info', 'request.metrics']], 'log=verbose: the action\'s steps too; a flag that is none: ignored, with a warning')
+      t.alike(told.log.map(e => [e.level, e.event]), [['warn', 'request.flag'], ['verbose', 'crud.read.segment'], ['verbose', 'crud.read.query'], ['info', 'request.metrics']], 'log=verbose: the action\'s steps too; a flag that is none: ignored, with a warning')
       t.alike(await send(work, req('crud', 'delete', 'notes', 'recurse')), { ok: true, value: [{ ...NOTES, outcome: 'deleted' }] }, 'deleted, with what was below it')
       t.alike(await send(work, req('service', 'stop', '.')), { ok: true, value: { service: 'stopped', state: 'initialised' } })
       t.alike(await send(work, req('crud', 'read', '.')), { ok: false, error: 'not now: crud read (crud is not active; the service is initialised)' }, 'stopped: crud deactivated by the stop hook, not available')
