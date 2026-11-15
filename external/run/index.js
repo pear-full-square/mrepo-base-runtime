@@ -20,7 +20,13 @@ export async function run (exec, { args: [subject, ...args] = [] }) {
   if (subject === undefined || subject === '') throw new Error('missing argument: target')
   const { pkg, target: t } = target(subject)
   if (t === '/run') throw new Error(`not run here: ${subject} (a package's program)`)
-  const listed = await exec.read('/packages/manifest.json').then(b => JSON.parse(b.toString()).packages || {}, () => ({}))
+  // a document that may not be there: null then; one that is no document: an error
+  const read = async p => {
+    const bytes = await exec.find(p)
+    if (bytes === null) return null
+    try { return JSON.parse(bytes.toString()) } catch (err) { throw new Error(`not a document: ${p}`, { cause: err }) }
+  }
+  const listed = (await read('/packages/manifest.json'))?.packages || {}
   if (!listed[pkg]) throw new Error(`not a package of this mrepo: ${pkg}`)
   const bundle = join(exec.runtime.dir, 'packages', `${pkg}.bundle`)
   if (!existsSync(bundle)) throw new Error(`its bundle missing: ${bundle}`)
@@ -33,7 +39,6 @@ export async function run (exec, { args: [subject, ...args] = [] }) {
   const situ = mkdtempSync(join(tmpdir(), 'situ-'))
   let r
   try {
-    const read = p => exec.read(p).then(b => JSON.parse(b.toString()), () => null)
     const linked = {}
     for (const p of Object.keys(listed)) {
       const f = join(exec.runtime.dir, 'packages', `${p}.bundle`)
@@ -45,7 +50,8 @@ export async function run (exec, { args: [subject, ...args] = [] }) {
       packages: listed,
       linked
     }))
-    r = await dispatcher.run(t, { dryRun, env: { MREPO: exec.runtime.dir, PACKAGE: pkg, SITU: join(situ, 'situ.json') } })
+    exec.log('debug', 'situ', { packages: Object.keys(listed).length, linked: Object.values(linked).filter(Boolean).length })
+    r = await exec.step('run', x => ({ package: pkg, target: t, dryRun, units: x?.units?.length ?? null }), () => dispatcher.run(t, { dryRun, env: { MREPO: exec.runtime.dir, PACKAGE: pkg, SITU: join(situ, 'situ.json') } }))
   } finally { rmSync(situ, { recursive: true, force: true }) }
   if (dryRun) return { target: t, runs: r }
   if (t === '/protocol' || t === '/deploy') return { target: t, offers: Object.keys(r).filter(k => k !== 'default') }
