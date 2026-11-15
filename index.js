@@ -187,6 +187,7 @@ export async function run ({ work: w, repo: given = null, every = 200, own = nul
       while ((i = buf.indexOf('\n')) >= 0) {
         const line = buf.slice(0, i); buf = buf.slice(i + 1)
         let req = null
+        // catch: not a request on the socket: answered as none
         try { req = JSON.parse(line) } catch {}
         if (req?.op === 'status') pipe.write(JSON.stringify(status()) + '\n')
         else if (req?.op === 'stop') { pipe.end(JSON.stringify({ ok: true, stopping: true }) + '\n'); stop('asked') }
@@ -204,6 +205,7 @@ export async function run ({ work: w, repo: given = null, every = 200, own = nul
     try {
       if (repo.storage !== 'git') await post(ctx)
       // operational once its own requests are done: the inbox taken in
+      // catch: not in done yet: its own requests still going, not operational yet
       if (!ctx.intake) ctx.intake = (await Promise.all(starting.map(n => layer(ctx, DONE).read(n).then(() => true, () => false)))).every(Boolean)
       await request(ctx)
       await execute(ctx, { actions })
@@ -211,6 +213,7 @@ export async function run ({ work: w, repo: given = null, every = 200, own = nul
     } catch (err) {
       // The error in the request executing; none, or that failing too: stderr.
       const why = `runtime: ${err.message}`
+      // console: the runtime's last word: a pass failed and no request was executing to take it, or it could not be recorded
       try { if (!(await failed(ctx, why)).length) console.error(`mrepo: ${why}`) } catch (e) { console.error(`mrepo: ${why}; not recorded: ${e.message}`) }
     } finally { busy = false }
   }, every)
@@ -232,6 +235,7 @@ export function ask ({ work, repo = null, op, timeout = 5000 }) {
     pipe.on('data', chunk => {
       buf += chunk.toString()
       const i = buf.indexOf('\n')
+      // catch: not an answer: null, as no answer
       if (i >= 0) { let v = null; try { v = JSON.parse(buf.slice(0, i)) } catch {} finish(v) }
     })
     pipe.on('error', () => finish(null))
@@ -266,6 +270,7 @@ export async function start ({ work, repo = null, bare = process.execPath, bundl
 // there, SIGKILL. pid: its process where it does not answer (as whoever
 // started it recorded it). -> { pid, how } (how: asked, SIGTERM, SIGKILL);
 // null when none was running; throws when it did not end.
+// catch: no such process: not alive
 const alive = pid => { try { os.kill(pid, 0); return true } catch { return false } }
 const ended = async (pid, ms) => { for (let i = 0; i < ms / 100 && alive(pid); i++) await new Promise(resolve => setTimeout(resolve, 100)); return !alive(pid) }
 export async function stop ({ work, repo = null, pid = null }) {
@@ -274,8 +279,10 @@ export async function stop ({ work, repo = null, pid = null }) {
   if (!pid || !alive(pid)) return null
   if (was) await ask({ work, repo, op: 'stop' })
   if (await ended(pid, 5000)) return { pid, how: 'asked' }
+  // catch: ended meanwhile: nothing to signal
   try { os.kill(pid, 'SIGTERM') } catch {}
   if (await ended(pid, 5000)) return { pid, how: 'SIGTERM' }
+  // catch: ended meanwhile: nothing to signal
   try { os.kill(pid, 'SIGKILL') } catch {}
   if (await ended(pid, 2000)) return { pid, how: 'SIGKILL' }
   throw new Error(`its runtime did not stop: pid ${pid}`)

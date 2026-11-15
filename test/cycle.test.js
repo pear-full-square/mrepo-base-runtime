@@ -44,7 +44,13 @@ for (const storage of ['p2p', 'git']) {
       const form = await sendForm(work, req('crud', 'read', 'notes/hello'))
       t.is(form.topic, '/haicc/terminal', 'back: the core, its topic the sender')
       t.alike(form.headers, {}, 'no headers yet')
-      t.alike(form.value, { protocol: 'crud', action: 'read', uri: ['main', 'notes/hello'], output: [HELLO] }, 'the form completed: the request, its URI as held inside, and its output')
+      const { log, ...asked } = form.value
+      t.alike(asked, { protocol: 'crud', action: 'read', uri: ['main', 'notes/hello'], output: [HELLO] }, 'the form completed: the request, its URI as held inside, and its output')
+      t.alike(log.map(e => [e.level, e.event]), [['info', 'request.metrics']], 'and its log: at info, a read changes nothing, its metrics')
+      t.alike([log[0].ok, log[0].puts, log[0].commits], [true, 0, 0])
+      const told = (await sendForm(work, { command: ['crud/read', 'notes/hello', '--flags', 'log=verbose', 'nope'] })).value
+      t.alike(told.flags, { log: 'verbose', nope: true }, 'flags written with a command: in the form, as written')
+      t.alike(told.log.map(e => [e.level, e.event]), [['warn', 'request.flag'], ['verbose', 'crud.read.select'], ['info', 'request.metrics']], 'log=verbose: the action\'s steps too; a flag that is none: ignored, with a warning')
       t.alike(await send(work, req('crud', 'delete', 'notes', 'recurse')), { ok: true, value: [{ ...NOTES, outcome: 'deleted' }] }, 'deleted, with what was below it')
       t.alike(await send(work, req('service', 'stop', '.')), { ok: true, value: { service: 'stopped', state: 'initialised' } })
       t.alike(await send(work, req('crud', 'read', '.')), { ok: false, error: 'not now: crud read (crud is not active; the service is initialised)' }, 'stopped: crud deactivated by the stop hook, not available')
@@ -59,7 +65,7 @@ for (const storage of ['p2p', 'git']) {
       try {
         const repo = openRepo(r.backend)
         const done = await repo.select('/request/done/*')
-        t.is(done.length, 21, 'every request done, the refused ones too, and the boot hook')
+        t.is(done.length, 22, 'every request done, the refused ones too, and the boot hook')
         const recs = await Promise.all(done.map(async ([p]) => JSON.parse((await repo.read(p)).toString())))
         t.ok(recs.every(x => x.topic === '/request/done' && ('output' in x.value.value || 'error' in x.value.value)), 'each in its envelope at its topic, its form completed')
         t.is(recs.filter(x => x.value.topic === null).length, 2, 'the preloaded one and the boot hook: no sender')
@@ -67,8 +73,8 @@ for (const storage of ['p2p', 'git']) {
         t.alike((await r.backend.listBranches()).map(([b]) => b).filter(b => !b.startsWith('execute/')).sort(), ['inbox', 'main', 'outbox', 'packages', 'protocols', 'request/done', 'request/execute', 'request/pending/default', 'runtime'], 'the layers (the execution branches not among them)')
         t.alike(await repo.select('/request/execute/*'), [], 'nothing left executing')
         t.alike(await repo.select('/main/*'), [], 'main: the note deleted again')
-        t.is((await repo.select('/inbox/*')).length, 19, 'the inbox: every envelope posted, kept (housekeeping later)')
-        t.is((await repo.select('/outbox/*')).length, 19, 'the outbox: every completed form sent back')
+        t.is((await repo.select('/inbox/*')).length, 20, 'the inbox: every envelope posted, kept (housekeeping later)')
+        t.is((await repo.select('/outbox/*')).length, 20, 'the outbox: every completed form sent back')
         t.is(JSON.parse((await repo.read('/runtime/service.json')).toString()).state, 'booted')
       } finally { await r.close() }
       t.absent(existsSync(join(work, 'mrepos', 'host', 'log')), 'no log folder')
@@ -88,7 +94,10 @@ for (const storage of ['p2p', 'git']) {
         t.alike([input.topic, done.topic, output.topic], ['/host/inbox', '/request/done', '/outbox'], 'each place: a new envelope, its topic the place')
         t.ok([input, done, output].every(r => r.key === name && r.value.key === name), 'one key throughout: every envelope, its core')
         t.alike(done.value, output.value, 'the core completed: in done, and sent back')
-        t.alike({ ...input.value, value: { ...input.value.value, uri: ['main', 'notes/hello'], output: CREATED } }, done.value, 'the core as posted, its URI as held inside, completed (its output)')
+        const { log: written, ...completed } = done.value.value
+        t.alike({ ...input.value, value: { ...input.value.value, uri: ['main', 'notes/hello'], output: CREATED } }, { ...done.value, value: completed }, 'the core as posted, its URI as held inside, completed (its output)')
+        t.alike(written.map(e => e.event), ['request.changed', 'request.metrics'], 'and its log: what it changed, its metrics')
+        t.alike([written[0].target, written[0].added], ['main', ['notes/.node.json', 'notes/hello/.node.json']], 'its audit: the paths it added in main')
         t.comment(`the journey of ${name} (${storage}): the input, the done request, the output, as records`)
         t.comment(`input  ${JSON.stringify(input)}`)
         t.comment(`done   ${JSON.stringify(done)}`)
