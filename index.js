@@ -57,7 +57,7 @@ import { openStore } from 'p2p-store'
 import { mrepos } from 'p2p-mrepo'
 import { openRepo, writer } from 'mycelium-git'
 import { nativeBackend, p2pgitBackend } from 'mycelium-git'
-import { INBOX, OUTBOX, inboxFolder, post, viewOf, gitdirOf, setting, request, principals, layer, internal, hooks, DONE } from 'mrepo-base-request'
+import { INBOX, OUTBOX, MREPOS, inboxFolder, post, viewOf, gitdirOf, setting, request, principals, layer, internal, hooks, DONE } from 'mrepo-base-request'
 import { execute, failed } from 'mrepo-base-execute'
 import { IDENTITY } from 'mrepo-base-xpath'
 export { run as runtimeRun } from './external/run/index.js'
@@ -87,11 +87,15 @@ export function socketIn (dir) {
 // <work>/runtime.sock).
 export function whereOf (at) {
   const { work, repo } = typeof at === 'string' ? { work: at } : at
-  // dir: the mrepo's own folder (its .git, inbox, packages, its children
-  // under main/); work: where its store and Bare are reached (the work
-  // folder; for an mrepo by its directory, the parent of mrepos/ when it is
-  // <work>/mrepos/<name>, else none: reached through its packages manifest)
-  if (repo) return { dir: repo, work: basename(dirname(repo)) === 'mrepos' ? dirname(dirname(repo)) : null, name: basename(repo), storage: 'filesystem', socket: socketIn(repo) }
+  // dir: the mrepo's own folder (its .git, inbox, packages); work: where
+  // its store and Bare are reached (the work folder; for an mrepo by its
+  // directory, the parent of mrepos/ when it is <work>/mrepos/<name>, or
+  // <work>/mrepos/<swarm>/<name>, placed by its unique URI; else none:
+  // reached through its packages manifest)
+  if (repo) {
+    const work = basename(dirname(repo)) === MREPOS ? dirname(dirname(repo)) : basename(dirname(dirname(repo))) === MREPOS ? dirname(dirname(dirname(repo))) : null
+    return { dir: repo, work, name: basename(repo), storage: 'filesystem', socket: socketIn(repo) }
+  }
   const s = setting(work)
   return { dir: viewOf(work, s.name), work, ...s, socket: join(work, SOCKET) }
 }
