@@ -56,10 +56,18 @@ mrepo's own packages: `bare
   bare); `filesystem`, p2p-git's hybrid with every layer on the filesystem (the same
   folder, no Corestore: the boot mrepo); `p2p` (the default), the host's
   repository over its Corestore and disk side. The same protocols on all.
-- One poller fires the protocols in turn over their data states: on the
+- A pass fires the protocols in turn over their data states: on the
   p2p host (and on `filesystem`) the inbox folder's new files committed, the request protocol (`mrepo-base-request`), the
   execute protocol (`mrepo-base-execute`). It runs until it is stopped: a parent's teardown
   stops its child's.
+- **A pass is made when something arrives**, not on a clock. The inbox
+  folder is watched, and so is the outbox folder of each linked mrepo a
+  request here waits for: a file written there wakes a pass. A pass that
+  moved something (a branch's head changed) is followed by the next at
+  once. Nothing moving and nothing arriving: nothing is listed, but for
+  a slow look, the net for an event missed (`idle`, 2 s). A folder that
+  cannot be watched, and a `git` repository, whose inbox is a layer
+  written by others, are looked at as before, every `every` (200 ms).
 - `stop({ repo, pid })`: a runtime ended, waited for until its process has
   ended: asked over its connection, then SIGTERM, then SIGKILL. Used by a
   parent's teardown and by the `haicc` app's.

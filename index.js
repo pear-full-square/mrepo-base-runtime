@@ -18,8 +18,12 @@
 //                           it and its disk side); the local
 //                           connection served (<work>/runtime.sock, owner
 //                           only: one JSON request a line, one JSON answer a
-//                           line: { op: 'status' }, { op: 'stop' }); one
-//                           poller firing the protocols in turn, over their
+//                           line: { op: 'status' }, { op: 'stop' }); the
+//                           protocols fired in turn, a pass, when something
+//                           arrives (the inbox folder and the outbox folders
+//                           of linked mrepos a request waits for, watched),
+//                           at once after a pass that moved something, and
+//                           after a slow look (idle), over their
 //                           data states: on the p2p host the inbox folder's
 //                           new files committed (the folder the inbox layer's
 //                           working tree), the request
@@ -53,7 +57,7 @@ import { openStore } from 'p2p-store'
 import { mrepos } from 'p2p-mrepo'
 import { openRepo, writer } from 'mycelium-git'
 import { nativeBackend, p2pgitBackend } from 'mycelium-git'
-import { INBOX, OUTBOX, inboxFolder, post, viewOf, gitdirOf, setting, request, layer, internal, hooks, DONE } from 'mrepo-base-request'
+import { INBOX, OUTBOX, inboxFolder, post, viewOf, gitdirOf, setting, request, principals, layer, internal, hooks, DONE } from 'mrepo-base-request'
 import { execute, failed } from 'mrepo-base-execute'
 import { IDENTITY } from 'mrepo-base-xpath'
 export { run as runtimeRun } from './external/run/index.js'
@@ -133,7 +137,7 @@ export async function protocolsOf (repo, folder, skip = null) {
 // own: { pkg, actions, protocols }, the protocols of the package this
 // runtime runs from (its protocol.js, passed by its run.js: not imported
 // again here): their actions and their configs.
-export async function run ({ work: w, repo: given = null, every = 200, own = null }) {
+export async function run ({ work: w, repo: given = null, every = 200, idle = 2000, own = null }) {
   const at = given ? { repo: given } : { work: w }
   const { work, dir } = whereOf(at)
   const repo = await open(at)
@@ -171,7 +175,9 @@ export async function run ({ work: w, repo: given = null, every = 200, own = nul
     // No new connections; open ones end with the process (not waited on:
     // the one that asked to stop may still be open).
     if (server) server.close()
-    clearInterval(poller)
+    clearTimeout(timer)
+    for (const [, watcher] of watched) watcher.close()
+    watched.clear()
     while (busy) await new Promise(resolve => setTimeout(resolve, 20))
     await repo.close()
     // The socket last (the store's lock itself is released as the process ends).
@@ -197,12 +203,53 @@ export async function run ({ work: w, repo: given = null, every = 200, own = nul
     pipe.on('error', () => {})
   })
   server.listen({ path: socketOf(at), ownerOnly: true })
-  // The poller: the protocols fired in turn, one pass each, never two at once.
+  // A pass: the protocols fired in turn, never two at once. Then the next
+  // one, not on a clock: at once when this one moved something (a branch's
+  // head changed: there may be more to do); else when something arrives:
+  // a file in the inbox folder, or in the outbox folder of a linked mrepo a
+  // request here waits for (the folders watched); and after a slow look
+  // (idle), the net for an event missed. A folder that cannot be watched
+  // (not there yet), and a repository whose inbox is no folder here (git
+  // storage: its inbox layer written by others), are looked at as before,
+  // every `every`.
   let busy = false
-  const poller = setInterval(async () => {
+  let again = false
+  let timer = null
+  let due = Infinity
+  const watched = new Map()
+  const wake = (ms = 0) => {
+    if (stopping) return
+    if (busy) { again = true; return }
+    const at = Date.now() + ms
+    if (timer && at >= due) return
+    clearTimeout(timer)
+    due = at
+    timer = setTimeout(pass, ms)
+  }
+  // The folders watched now: those given, and no others. -> whether each
+  // is watched, and whether one was added (what came before it was is
+  // looked for once more).
+  const watch = folders => {
+    for (const [folder, watcher] of watched) if (!folders.includes(folder)) { watcher.close(); watched.delete(folder) }
+    let added = false
+    for (const folder of folders) {
+      if (watched.has(folder) || !existsSync(folder)) continue
+      // catch: a folder that cannot be watched is looked at instead: every `every`
+      try { const watcher = fs.watch(folder, () => wake()); watcher.on('error', () => {}); watched.set(folder, watcher); added = true } catch {}
+    }
+    return { all: folders.every(f => watched.has(f)), added }
+  }
+  const inbox = repo.storage !== 'git' ? join(dir ?? viewOf(work, repo.name), 'inbox') : null
+  const heads = async () => (await repo.backend.listBranches()).map(([b, c]) => `${b} ${c}`).sort().join('\n')
+  async function pass () {
+    timer = null
+    due = Infinity
     if (stopping || busy) return
     busy = true
+    again = false
+    let next = every
     try {
+      const before = await heads()
       if (repo.storage !== 'git') await post(ctx)
       // operational once its own requests are done: the inbox taken in
       // catch: not in done yet: its own requests still going, not operational yet
@@ -210,13 +257,24 @@ export async function run ({ work: w, repo: given = null, every = 200, own = nul
       await request(ctx)
       await execute(ctx, { actions })
       await request(ctx)
+      if ((await heads()) !== before || !ctx.intake) next = ctx.intake ? 0 : Math.min(every, 20)
+      else if (inbox) {
+        // nothing moved: wait for what arrives: the inbox, and the answers
+        // the requests waiting here wait for
+        const waiting = dir ? (await principals(ctx)).filter(p => p.waits && !p.response && p.core.value?.remote?.folder).map(p => join(dir, p.core.value.remote.folder, 'outbox')) : []
+        const { all, added } = watch([inbox, ...new Set(waiting)])
+        next = added ? 0 : all ? idle : every
+      }
     } catch (err) {
       // The error in the request executing; none, or that failing too: stderr.
       const why = `runtime: ${err.message}`
       // console: the runtime's last word: a pass failed and no request was executing to take it, or it could not be recorded
       try { if (!(await failed(ctx, why)).length) console.error(`mrepo: ${why}`) } catch (e) { console.error(`mrepo: ${why}; not recorded: ${e.message}`) }
     } finally { busy = false }
-  }, every)
+    wake(again ? 0 : next)
+  }
+  if (inbox) watch([inbox])
+  wake()
   process.on('SIGTERM', () => stop('SIGTERM'))
   process.on('SIGINT', () => stop('SIGINT'))
   // Held open until it has stopped (the timer keeps the process alive).
