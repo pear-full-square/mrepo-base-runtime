@@ -62,7 +62,7 @@ test('the runtime: started detached, the store held, asked over its connection, 
     const r = await (await import('../index.js')).open(work)
     try {
       const done = await openRepo(r.backend).select('/request/done/*')
-      t.is(done.length, 3, 'in request/done: the preloaded one, the boot hook, the posted one')
+      t.is(done.length, 4, 'in request/done: the preloaded one, the protocol protocol opened by the runtime, the boot hook\'s line, the posted one')
     } finally { await r.close() }
   } finally { rmSync(work, { recursive: true, force: true }) }
 })
