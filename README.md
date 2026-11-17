@@ -75,4 +75,4 @@ mrepo's own packages: `bare
 
 ## Tests
 
-- `npm test`: the unit tests
+- `brittle-bare test/*.test.js`: the unit tests
