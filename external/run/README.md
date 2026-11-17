@@ -43,6 +43,6 @@ The target is the rest of the first argument after the package: `/test/<set>`,
 
 - **In situ**: the tests that run where the package is deployed are
   handed the mrepo (`MREPO`), the package (`PACKAGE`) and the mrepo's
-  state in a file (`SITU`): its help as extracted, its layers, its
+  state in a file (`SITU`): its info as extracted, its layers, its
   packages' manifest, each linked bundle's hash. The file is removed
   after.

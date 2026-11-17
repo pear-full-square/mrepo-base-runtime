@@ -34,7 +34,7 @@ export async function run (exec, { args: [subject, ...args] = [] }) {
   if (typeof dispatcher.run !== 'function') throw new Error(`${pkg} has no dispatcher`)
   const dryRun = args.includes('dry-run')
   // the in-situ tests: which mrepo (MREPO), which package (PACKAGE), and the
-  // mrepo's state handed over (SITU: a file, removed after): its help as
+  // mrepo's state handed over (SITU: a file, removed after): its info as
   // extracted, its layers, its packages manifest, each linked bundle's hash
   const situ = mkdtempSync(join(tmpdir(), 'situ-'))
   let r
@@ -45,7 +45,7 @@ export async function run (exec, { args: [subject, ...args] = [] }) {
       linked[p] = existsSync(f) ? { sha256: crypto.createHash('sha256').update(readFileSync(f)).digest('hex') } : null
     }
     writeFileSync(join(situ, 'situ.json'), JSON.stringify({
-      help: { index: await read('/help/index.json'), problems: await read('/help/problems.json') },
+      info: { index: await read('/info/index.json'), problems: await read('/info/problems.json') },
       layers: (await exec.runtime.branches()).filter(b => !b.startsWith('execute/')),
       packages: listed,
       linked

@@ -11,10 +11,10 @@ Other protocols come from the linked packages. It is started from the
 mrepo's own packages: `bare
 <dir>/packages/haiccing/base-package-runtime.bundle <dir>`.
 
-| | |
-|---|---|
-| [external/](external/) | the runtime protocol's action, `run` |
-| [test/](test/) | its tests, what each checks |
+## Links
+
+- [external](external/)
+- [test](test/)
 
 ## Design
 
