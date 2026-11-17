@@ -28,6 +28,7 @@ export async function run (exec, { args: [subject, ...args] = [] }) {
   }
   const listed = (await read('/packages/manifest.json'))?.packages || {}
   if (!listed[pkg]) throw new Error(`not a package of this mrepo: ${pkg}`)
+  if (listed[pkg].documented) throw new Error(`documented only here, not run: ${pkg}`)
   const bundle = join(exec.runtime.dir, 'packages', `${pkg}.bundle`)
   if (!existsSync(bundle)) throw new Error(`its bundle missing: ${bundle}`)
   const dispatcher = await import(pathToFileURL(bundle).href)
