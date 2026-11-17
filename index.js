@@ -57,7 +57,7 @@ import { openStore } from 'p2p-store'
 import { mrepos } from 'p2p-mrepo'
 import { openRepo, writer } from 'mycelium-git'
 import { nativeBackend, p2pgitBackend } from 'mycelium-git'
-import { INBOX, OUTBOX, MREPOS, inboxFolder, post, viewOf, gitdirOf, setting, request, principals, layer, internal, hooks, DONE } from 'mrepo-base-request'
+import { INBOX, OUTBOX, MREPOS, inboxFolder, inboxOf, post, viewOf, gitdirOf, setting, request, principals, layer, internal, hookOf, parse, runLines, DONE, OUTSIDE, guid } from 'mrepo-base-request'
 import { execute, failed } from 'mrepo-base-execute'
 import { IDENTITY } from 'mrepo-base-xpath'
 export { run as runtimeRun } from './external/run/index.js'
@@ -152,6 +152,22 @@ export async function run ({ work: w, repo: given = null, every = 200, idle = 20
   // Its unique URI (<swarm>/<node>), from its runtime layer; its name where
   // it has none: how it is addressed (its inbox's topic, its requests').
   ctx.uri = await ctx.repo.read(IDENTITY).then(b => JSON.parse(b.toString()).uri, () => null) ?? repo.name
+  // A record into its own inbox, as its storage takes one: the inbox layer
+  // straight on git, the inbox folder otherwise (taken in from there).
+  // A line of a hook or a script, as the mrepo's own: queued here, placed by
+  // the runtime's next pass as an internal request (standing at main, as a
+  // line is written), its completed form waited for in request/done.
+  ctx.queued = []
+  ctx.own = parts => new Promise((resolve, reject) => {
+    const name = guid()
+    ctx.queued.push({ name, parts })
+    wake()
+    const look = () => ctx.repo.read(`/${DONE}/${name}.json`).then(b => resolve(JSON.parse(b.toString()).value.value), () => setTimeout(look, 30))
+    setTimeout(look, 30)
+  })
+  // a request's completed form, from its outbox layer: null until it is there
+  ctx.answer = key => ctx.repo.read(`/outbox/${key}.json`).then(b => JSON.parse(b.toString()).value.value, () => null)
+  ctx.submit = async (key, envelope) => { if (repo.storage === 'git') await post(ctx, envelope, key); else inboxOf(dir ?? viewOf(work, repo.name)).write(key, envelope); wake() }
   // The protocols its packages offer: each linked package with a protocol
   // entry, loaded from its bundle in the mrepo's packages/ (its dispatcher's
   // run('/protocol')), its actions beside the framework's.
@@ -163,14 +179,16 @@ export async function run ({ work: w, repo: given = null, every = 200, idle = 20
   const loaded = await protocolsOf(ctx.repo, join(dir, 'packages'), own?.pkg)
   const actions = { ...(own?.actions ?? {}), ...loaded.actions }
   ctx.protocols = { ...(own?.protocols ?? {}), ...loaded.protocols }
-  // Boot: its hooks, the commands its defining package dropped into
-  // /runtime/hooks/boot/, placed as its own requests, in name order
-  // (internal, straight to the handler); the inbox not taken in until they
-  // are done. The runtime names no protocol: what is activated, extracted
-  // or made ready at boot is the hooks'.
-  const starting = []
-  for (const h of await hooks(ctx.repo, 'boot')) starting.push((await internal(ctx, { command: h.command })).name)
-  ctx.intake = !starting.length
+  // Boot: the protocol protocol opened by the runtime itself, its own
+  // request (internal, straight to the handler); then its boot hook file
+  // (/runtime/hooks/boot.haicc, its defining package's) run through its
+  // own inbox, a request a line: meanwhile only its own requests are taken
+  // in (intake 'internal', tagged by the trigger), the rest wait in the
+  // inbox until the boot is done. Otherwise the runtime names no protocol:
+  // what is activated, extracted or made ready at boot is the hook's.
+  const starting = [(await internal(ctx, { command: ['protocol/activate', '.', 'protocol'] })).name]
+  const boot = await hookOf(ctx.repo, 'boot')
+  ctx.intake = false
   const status = () => ({ ok: true, pid: process.pid, started, repository: { name: repo.name, uri: ctx.uri, storage: repo.storage, id: repo.id, key: repo.key }, version })
   let stopping = null
   let stopped = false
@@ -257,7 +275,18 @@ export async function run ({ work: w, repo: given = null, every = 200, idle = 20
       if (repo.storage !== 'git') await post(ctx)
       // operational once its own requests are done: the inbox taken in
       // catch: not in done yet: its own requests still going, not operational yet
-      if (!ctx.intake) ctx.intake = (await Promise.all(starting.map(n => layer(ctx, DONE).read(n).then(() => true, () => false)))).every(Boolean)
+      if (ctx.intake === false && (await Promise.all(starting.map(n => layer(ctx, DONE).read(n).then(() => true, () => false)))).every(Boolean)) {
+        if (boot === null) ctx.intake = true
+        else {
+          ctx.intake = 'internal'
+          // the boot hook's lines, each its own request; whatever came of
+          // them, the inbox open after
+          // catch: a line that failed is in its own record; the boot goes on
+          Promise.resolve().then(() => runLines({ dir: dir ?? viewOf(work, repo.name), uri: ctx.uri, own: ctx.own }, parse(boot), '.')).catch(() => null).then(() => { ctx.intake = true; wake() })
+        }
+      }
+      // the lines queued as the mrepo's own: placed now, between passes
+      for (const q of ctx.queued.splice(0)) await internal(ctx, { command: q.parts }, q.name, { at: OUTSIDE })
       await request(ctx)
       await execute(ctx, { actions })
       await request(ctx)
