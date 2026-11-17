@@ -21,7 +21,7 @@ export const HOOKS = {
   start: 'protocol/activate . crud\n',
   stop: 'protocol/deactivate . crud\n'
 }
-async function layers (backend, { preload }) {
+async function layers (backend, { preload, hooks = true }) {
   const w = writer(backend)
   for (const l of ['main', 'packages', 'runtime', 'protocols', 'inbox', 'outbox', 'request/pending/default', 'request/execute', 'request/done']) await w.createLayer(l, `Create ${l}`, { author })
   const p = await w.change('packages')
@@ -29,7 +29,8 @@ async function layers (backend, { preload }) {
   await p.commit('Installed', { author })
   const r = await w.change('runtime')
   await r.put('/service.json', Buffer.from(JSON.stringify({ state: 'booted' })))
-  for (const [t, text] of Object.entries(HOOKS)) await r.put(`/hooks/${t}.haicc`, Buffer.from(text))
+  // (hooks: false: none, where no runtime runs their lines: an execution in this process)
+  if (hooks) for (const [t, text] of Object.entries(HOOKS)) await r.put(`/hooks/${t}.haicc`, Buffer.from(text))
   await r.commit('Booted', { author })
   if (preload) {
     const q = await w.change(PENDING)
@@ -39,18 +40,18 @@ async function layers (backend, { preload }) {
   }
 }
 
-export async function bootedHost (work, { preload = true, storage = 'p2p' } = {}) {
+export async function bootedHost (work, { preload = true, storage = 'p2p', hooks = true } = {}) {
   if (storage === 'git') {
     writeFileSync(join(work, 'mrepo.json'), JSON.stringify({ storage: 'git', name: 'host' }) + '\n')
     const backend = nativeBackend(gitdirOf(work, 'host'))
     await backend.init()
-    await layers(backend, { preload })
+    await layers(backend, { preload, hooks })
     return { name: 'host', id: null }
   }
   const store = await openStore({ storage: join(work, 'store') })
   try {
     const host = await mrepos({ store, local: join(work, 'mrepos') }).create('host')
-    await layers(host.backend, { preload })
+    await layers(host.backend, { preload, hooks })
     return host
   } finally { await store.close() }
 }
