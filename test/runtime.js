@@ -7,18 +7,15 @@
 // Exit 0 done; 1 not done (the store held by another, no repository); 2 a bad call.
 import process from 'bare-process'
 import { resolve } from 'bare-path'
-import { create, read, remove, CONFIG as CRUD } from 'mrepo-base-crud'
-import { initialise, start, stop, shutdown, CONFIG } from 'mrepo-base-service'
-import { activate, deactivate, CONFIG as PROTOCOL } from 'mrepo-base-protocol'
+import { create, read, remove } from 'mrepo-base-crud'
+import { initialise, start, stop, shutdown } from 'mrepo-base-service'
+import { activate, deactivate } from 'mrepo-base-protocol'
+import { PROTOCOLS } from './fixture.js'
 import { version, run } from '../index.js'
 
 const own = {
   actions: { crud: { create, read, delete: remove }, service: { initialise, start, stop, shutdown }, protocol: { activate, deactivate } },
-  protocols: {
-    service: CONFIG,
-    protocol: PROTOCOL,
-    crud: CRUD
-  }
+  protocols: PROTOCOLS
 }
 
 const argv = process.argv.slice(2)
