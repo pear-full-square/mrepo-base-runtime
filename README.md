@@ -80,4 +80,4 @@ mrepo's own packages: `bare
 
 ## Tests
 
-- `brittle-bare test/*.test.js` (Bare installed): the unit tests
+- `brittle-bare test/*.test.js` (Bare installed): the cycle on p2p and on git, from the preloaded initialise to the shutdown; where the layers live; the runtime from the command line, started detached, asked over its connection, stopped; each test by its name in [test/](test/).
