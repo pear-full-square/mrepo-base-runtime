@@ -81,3 +81,22 @@ export async function send (work, form, opts) {
   if (!core) return null
   return 'output' in core.value ? { ok: true, value: core.value.output } : { ok: false, error: core.value.error }
 }
+
+// The configs of the protocols these tests run, as their packages give them
+// (a module carries no config: the package does), for a context written
+// for the tests: the service with its states, the protocol protocol, crud.
+const at = states => ({ uris: ['.'], states })
+export const PROTOCOLS = {
+  service: {
+    description: 'The service, for the tests.',
+    actions: { initialise: at(['booted']), start: at(['initialised']), stop: at(['started']), shutdown: at(['initialised']) }
+  },
+  protocol: {
+    description: 'The protocol protocol, for the tests.',
+    actions: { activate: { uris: ['.'], args: ['protocol'] }, deactivate: { uris: ['.'], args: ['protocol'] } }
+  },
+  crud: {
+    description: 'crud, for the tests.',
+    actions: { create: { uris: ['**'], target: true, args: ['value?'] }, read: { uris: ['**'] }, delete: { uris: ['**'], target: true, args: ['recurse?'] } }
+  }
+}
