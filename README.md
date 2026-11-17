@@ -26,10 +26,15 @@ mrepo's own packages: `bare
   `packages/` (the bundle's dispatcher, `run('/protocol')`: nothing else
   runs on import): its actions, and its configs, which the check reads
   (`ctx.protocols`).
-- Boot: its hooks, the commands in `/runtime/hooks/boot/`, placed as its
-  own requests, internal, in name order; until they are done, it takes
-  nothing from the inbox. The runtime names no protocol: what is
-  activated or extracted at boot is the hooks'.
+- Boot: the protocol protocol opened by the runtime itself, its own
+  request; then its boot hook file, `/runtime/hooks/boot.haicc`, a line a
+  request of its own (internal, standing at `main`), one after the
+  other; until they are done it takes nothing else from the inbox. The
+  runtime names no other protocol: what is activated or extracted at
+  boot is the hook's.
+- A line of a hook, the mrepo's own (`ctx.own`): queued, placed by the
+  next pass as an internal request, its completed form waited for in
+  `request/done`.
 - Its unique URI, `<swarm>/<node>`, read from its runtime layer
   (`/runtime/mrepo.json`) as it starts; its name where it has none. It is
   how the mrepo is addressed: its inbox's topic, its requests'. In its
