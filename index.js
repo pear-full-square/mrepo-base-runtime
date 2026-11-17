@@ -57,7 +57,7 @@ import { openStore } from 'p2p-store'
 import { mrepos } from 'p2p-mrepo'
 import { openRepo, writer } from 'mycelium-git'
 import { nativeBackend, p2pgitBackend } from 'mycelium-git'
-import { INBOX, OUTBOX, MREPOS, inboxFolder, inboxOf, post, viewOf, gitdirOf, setting, request, principals, layer, internal, hookOf, parse, runLines, DONE } from 'mrepo-base-request'
+import { INBOX, OUTBOX, MREPOS, inboxFolder, inboxOf, post, viewOf, gitdirOf, setting, request, principals, layer, internal, hookOf, parse, runLines, DONE, OUTSIDE, guid } from 'mrepo-base-request'
 import { execute, failed } from 'mrepo-base-execute'
 import { IDENTITY } from 'mrepo-base-xpath'
 export { run as runtimeRun } from './external/run/index.js'
@@ -154,6 +154,17 @@ export async function run ({ work: w, repo: given = null, every = 200, idle = 20
   ctx.uri = await ctx.repo.read(IDENTITY).then(b => JSON.parse(b.toString()).uri, () => null) ?? repo.name
   // A record into its own inbox, as its storage takes one: the inbox layer
   // straight on git, the inbox folder otherwise (taken in from there).
+  // A line of a hook or a script, as the mrepo's own: queued here, placed by
+  // the runtime's next pass as an internal request (standing at main, as a
+  // line is written), its completed form waited for in request/done.
+  ctx.queued = []
+  ctx.own = parts => new Promise((resolve, reject) => {
+    const name = guid()
+    ctx.queued.push({ name, parts })
+    wake()
+    const look = () => ctx.repo.read(`/${DONE}/${name}.json`).then(b => resolve(JSON.parse(b.toString()).value.value), () => setTimeout(look, 30))
+    setTimeout(look, 30)
+  })
   // a request's completed form, from its outbox layer: null until it is there
   ctx.answer = key => ctx.repo.read(`/outbox/${key}.json`).then(b => JSON.parse(b.toString()).value.value, () => null)
   ctx.submit = async (key, envelope) => { if (repo.storage === 'git') await post(ctx, envelope, key); else inboxOf(dir ?? viewOf(work, repo.name)).write(key, envelope); wake() }
@@ -271,9 +282,11 @@ export async function run ({ work: w, repo: given = null, every = 200, idle = 20
           // the boot hook's lines, each its own request; whatever came of
           // them, the inbox open after
           // catch: a line that failed is in its own record; the boot goes on
-          Promise.resolve().then(() => runLines({ dir: dir ?? viewOf(work, repo.name), uri: ctx.uri, submit: ctx.submit, answer: ctx.answer }, parse(boot), '.')).catch(() => null).then(() => { ctx.intake = true; wake() })
+          Promise.resolve().then(() => runLines({ dir: dir ?? viewOf(work, repo.name), uri: ctx.uri, own: ctx.own }, parse(boot), '.')).catch(() => null).then(() => { ctx.intake = true; wake() })
         }
       }
+      // the lines queued as the mrepo's own: placed now, between passes
+      for (const q of ctx.queued.splice(0)) await internal(ctx, { command: q.parts }, q.name, { at: OUTSIDE })
       await request(ctx)
       await execute(ctx, { actions })
       await request(ctx)
