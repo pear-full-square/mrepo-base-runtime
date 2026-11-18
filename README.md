@@ -73,6 +73,12 @@ mrepo's own packages: `bare
   a slow look, the net for an event missed (`idle`, 2 s). A folder that
   cannot be watched, and a `git` repository, whose inbox is a layer
   written by others, are looked at as before, every `every` (200 ms).
+- **A pass that runs on is said**: one still running after a minute is
+  reported once, on stderr and in the mrepo's folder,
+  `runtime-stall.json`: the step it is at (`heads`, `post`, `intake`,
+  `own`, `request`, `execute`, `request again`, `heads again`,
+  `waiting`, `failed`) and since when. Until it ends, no other pass is
+  made: the inbox is not taken in.
 - `stop({ repo, pid })`: a runtime ended, waited for until its process has
   ended: asked over its connection, then SIGTERM, then SIGKILL. Used by a
   parent's teardown and by the `haicc` app's.
