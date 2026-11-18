@@ -61,6 +61,10 @@ import { INBOX, OUTBOX, MREPOS, inboxFolder, inboxOf, post, viewOf, gitdirOf, se
 import { execute, failed } from 'mrepo-base-execute'
 import { IDENTITY } from 'mrepo-base-xpath'
 export { run as runtimeRun } from './external/run/index.js'
+export { lay as runtimeLay } from './external/lay/index.js'
+export { start as runtimeStart } from './external/start/index.js'
+export { stop as runtimeStop } from './external/stop/index.js'
+export { programAt, stateOf as programState, launch as launchProgram, end as endProgram } from './internal/program/index.js'
 import { pathToFileURL } from 'bare-url'
 import pkg from './package.json' with { type: 'json' }
 
