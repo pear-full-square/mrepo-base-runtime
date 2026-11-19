@@ -6,7 +6,7 @@ It holds the mrepo's store as its single writer, serves its local connection
 (`status`, `stop`), and fires the protocols in turn over their data states.
 Before the mrepo is operational, it places its own requests, such as
 its help's extraction, and takes none from the inbox. Its own package offers the `runtime`
-and `help` protocols.
+protocol.
 Other protocols come from the linked packages. It is started from the
 mrepo's own packages: `bare
 <dir>/packages/haiccing/base-package-runtime.bundle <dir>`.
@@ -14,6 +14,7 @@ mrepo's own packages: `bare
 ## Links
 
 - [external](external/)
+- [internal](internal/)
 - [test](test/)
 
 ## Design
@@ -46,7 +47,13 @@ mrepo's own packages: `bare
   entry through its dispatcher, its tests above all (a floating instance of
   the package, each unit its own process); the result the request's output,
   a line a unit in its log. `/protocol`, `/deploy`: the names offered.
-  `/run` refused (a package's program, not run inside the runtime). Without `service` (no `runtime/service.json`): no
+  `/run` refused (a package's program, not run inside the runtime).
+  `runtime/start . <path>` and `runtime/stop . <path>`: a package's
+  program beside the mrepo, its own process, ended with the runtime
+  (`internal/program`); `runtime/lay . <path>`: a package's runtime
+  config, its hooks, laid into the runtime layer: the second half of a
+  deploy, for a platform (`<path>` a package placed in the mrepo's
+  folder, by its path there). Without `service` (no `runtime/service.json`): no
   gate, and the runtime keeps running until stopped.
 - An mrepo by its directory (`run({ repo })`, as `ask`, `start`, `open`):
   `<work>/mrepos/<name>`, on the filesystem storage, its socket
@@ -73,6 +80,12 @@ mrepo's own packages: `bare
   a slow look, the net for an event missed (`idle`, 2 s). A folder that
   cannot be watched, and a `git` repository, whose inbox is a layer
   written by others, are looked at as before, every `every` (200 ms).
+- **A pass that runs on is said**: one still running after a minute is
+  reported once, on stderr and in the mrepo's folder,
+  `runtime-stall.json`: the step it is at (`heads`, `post`, `intake`,
+  `own`, `request`, `execute`, `request again`, `heads again`,
+  `waiting`, `failed`) and since when. Until it ends, no other pass is
+  made: the inbox is not taken in.
 - `stop({ repo, pid })`: a runtime ended, waited for until its process has
   ended: asked over its connection, then SIGTERM, then SIGKILL. Used by a
   parent's teardown and by the `haicc` app's.

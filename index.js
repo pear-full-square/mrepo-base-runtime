@@ -49,7 +49,7 @@
 import process from 'bare-process'
 import Pipe from 'bare-pipe'
 import { spawnSync } from 'bare-subprocess'
-import fs, { existsSync, rmSync } from 'bare-fs'
+import fs, { existsSync, rmSync, writeFileSync } from 'bare-fs'
 import { join, dirname, basename } from 'bare-path'
 import os from 'bare-os'
 import crypto from 'bare-crypto'
@@ -61,8 +61,15 @@ import { INBOX, OUTBOX, MREPOS, inboxFolder, inboxOf, post, viewOf, gitdirOf, se
 import { execute, failed } from 'mrepo-base-execute'
 import { IDENTITY } from 'mrepo-base-xpath'
 export { run as runtimeRun } from './external/run/index.js'
+export { lay as runtimeLay } from './external/lay/index.js'
+export { start as runtimeStart } from './external/start/index.js'
+export { stop as runtimeStop } from './external/stop/index.js'
+export { programAt, stateOf as programState, launch as launchProgram, end as endProgram } from './internal/program/index.js'
 import { pathToFileURL } from 'bare-url'
 import pkg from './package.json' with { type: 'json' }
+
+// A pass running longer than this is said: the step it is at (stall).
+const STALL = 60000
 
 export { INBOX, OUTBOX, inboxFolder, viewOf, gitdirOf, setting }
 
@@ -198,6 +205,7 @@ export async function run ({ work: w, repo: given = null, every = 200, idle = 20
     // the one that asked to stop may still be open).
     if (server) server.close()
     clearTimeout(timer)
+    clearInterval(stall)
     for (const [, watcher] of watched) watcher.close()
     watched.clear()
     while (busy) await new Promise(resolve => setTimeout(resolve, 20))
@@ -236,6 +244,10 @@ export async function run ({ work: w, repo: given = null, every = 200, idle = 20
   // every `every`.
   let busy = false
   let again = false
+  // where the pass is, and since when: a pass that runs on too long is said
+  // (stall, below)
+  let stage = null
+  let since = 0
   let timer = null
   let due = Infinity
   const watched = new Map()
@@ -269,10 +281,14 @@ export async function run ({ work: w, repo: given = null, every = 200, idle = 20
     if (stopping || busy) return
     busy = true
     again = false
+    since = Date.now()
     let next = every
     try {
+      stage = 'heads'
       const before = await heads()
+      stage = 'post'
       if (repo.storage !== 'git') await post(ctx)
+      stage = 'intake'
       // operational once its own requests are done: the inbox taken in
       // catch: not in done yet: its own requests still going, not operational yet
       if (ctx.intake === false && (await Promise.all(starting.map(n => layer(ctx, DONE).read(n).then(() => true, () => false)))).every(Boolean)) {
@@ -286,26 +302,46 @@ export async function run ({ work: w, repo: given = null, every = 200, idle = 20
         }
       }
       // the lines queued as the mrepo's own: placed now, between passes
+      stage = 'own'
       for (const q of ctx.queued.splice(0)) await internal(ctx, { command: q.parts }, q.name, { at: OUTSIDE })
+      stage = 'request'
       await request(ctx)
+      stage = 'execute'
       await execute(ctx, { actions })
+      stage = 'request again'
       await request(ctx)
+      stage = 'heads again'
       if ((await heads()) !== before || !ctx.intake) next = ctx.intake ? 0 : Math.min(every, 20)
       else if (inbox) {
         // nothing moved: wait for what arrives: the inbox, and the answers
         // the requests waiting here wait for
+        stage = 'waiting'
         const waiting = dir ? (await principals(ctx)).filter(p => p.waits && !p.response && p.core.value?.remote?.folder).map(p => join(dir, p.core.value.remote.folder, 'outbox')) : []
         const { all, added } = watch([inbox, ...new Set(waiting)])
         next = added ? 0 : all ? idle : every
       }
     } catch (err) {
       // The error in the request executing; none, or that failing too: stderr.
+      stage = 'failed'
       const why = `runtime: ${err.message}`
       // console: the runtime's last word: a pass failed and no request was executing to take it, or it could not be recorded
       try { if (!(await failed(ctx, why)).length) console.error(`mrepo: ${why}`) } catch (e) { console.error(`mrepo: ${why}; not recorded: ${e.message}`) }
-    } finally { busy = false }
+    } finally { busy = false; stage = null }
     wake(again ? 0 : next)
   }
+  // A pass that runs on past STALL: said once, on stderr and in the mrepo's
+  // folder (runtime-stall.json: the step it is at, since when), so a
+  // runtime that stops taking its inbox in says where it stopped.
+  let said = 0
+  const stall = setInterval(() => {
+    if (!busy || Date.now() - since < STALL || said === since) return
+    said = since
+    const report = { pid: process.pid, stage, since: new Date(since).toISOString(), seconds: Math.round((Date.now() - since) / 1000) }
+    // console: the runtime's own warning: a pass stalled (also written beside it, when it has a folder)
+    console.error(`mrepo: a pass stalled: ${JSON.stringify(report)}`)
+    // catch: no folder of its own to write into: said on stderr only
+    try { if (dir) writeFileSync(join(dir, 'runtime-stall.json'), JSON.stringify(report, null, 2) + '\n') } catch {}
+  }, STALL / 4)
   if (inbox) watch([inbox])
   wake()
   process.on('SIGTERM', () => stop('SIGTERM'))
